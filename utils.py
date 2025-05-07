@@ -129,46 +129,18 @@ def train_model(feature_names=["RESP", "NG_Price", "BESS"], outcome="Imbalance",
     # Time series cross-validation
     tscv = TimeSeriesSplit(n_splits=5)
     model = RidgeCV(cv=tscv, store_cv_results=False, alphas=np.logspace(-3, 3, 50)).fit(X_const, y)
-
+        
     # Best model metrics
     best_alpha = model.alpha_
     y_pred = model.predict(X_const)
     mae = mean_absolute_error(y, y_pred)
 
     if show_summary:
+        print("Model Coefficients:")
+        for feature, coef in zip(X_const.columns, model.coef_):
+            print(f"{feature}: {coef:.4f}")
         print(f"✅ Best Alpha: {best_alpha}")
         print(f"✅ Mean Absolute Error on Full Data: {mae:.4f}")
-
-    return model
-
-def train_model_day_ahead(historical_data_path="processed_data/historical_data.csv", show_summary=True, include_lag=False):
-    """
-    Trains an OLS regression model using the specified features and outcome variable.
-    - Parameters:
-        - feature_names (list): List of feature names to include in the model.
-        - outcome (str): The name of the outcome variable.
-        - historical_data_path (str): Path to the historical dataset.
-        - show_summary (bool): Whether to display the model summary.
-    """
-    historical_data = pd.read_csv(historical_data_path, parse_dates=["Date"])
-    historical_data.set_index("Date", inplace=True)
-    historical_data["month"] = historical_data.index.month
-
-    # Create monthly dummies (drop first month to avoid multicollinearity)
-    month_dummies = pd.get_dummies(historical_data["month"], prefix="Month", drop_first=True)
-
-    feature_names=["RESP", "NG_Price", "BESS"]
-
-    # Combine features and month dummies
-    X = pd.concat([historical_data[feature_names], month_dummies], axis=1)
-    X = sm.add_constant(X).astype(float)
-
-    y = historical_data["Day-ahead Only"]
-
-    model = sm.OLS(y, X).fit(cov_type='HC2')
-
-    if show_summary:
-        print(model.summary())
 
     return model
 
