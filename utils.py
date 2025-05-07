@@ -1,12 +1,15 @@
 ## --------------------------------------------------------------------------- IMPORTS --------------------------------------------------------------------------- ##
 
-import pandas as pd
 import itertools
 import matplotlib.pyplot as plt
-import statsmodels.api as sm
-from sklearn.preprocessing import StandardScaler
 import numpy as np
-
+import pandas as pd
+from sklearn.linear_model import RidgeCV, LassoCV, ElasticNetCV
+from sklearn.metrics import mean_absolute_error
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.preprocessing import StandardScaler
+import statsmodels.api as sm
+from scipy import stats
 
 ## --------------------------------------------------------------------------- FUNCTIONS --------------------------------------------------------------------------- ##
 
@@ -104,42 +107,44 @@ def smooth_logistic_growth(dates, start, end, steepness=4):
 
 ## --------------------------------------------------------------------------- TRAINING FUNCTIONS --------------------------------------------------------------------------- ##
 
-import pandas as pd
-import statsmodels.api as sm
-
-def train_model_gamma(feature_names=["RESP", "NG_Price", "BESS"], outcome="Imbalance", historical_data_path="Datasets/Processed Data/historical_data.csv", show_summary=True):
-    """
-    Trains a Gamma regression model using the specified features and month dummies.
-    - Parameters:
-        - feature_names (list): List of feature names to include in the model.
-        - outcome (str): The name of the outcome variable.
-        - historical_data_path (str): Path to the historical dataset.
-        - show_summary (bool): Whether to display the model summary.
-    """
+def train_model(feature_names=["RESP", "NG_Price", "BESS"], outcome="Imbalance",
+                            historical_data_path="processed_data/historical_data.csv", show_summary=True):
     historical_data = pd.read_csv(historical_data_path, parse_dates=["Date"])
     historical_data.set_index("Date", inplace=True)
     historical_data["month"] = historical_data.index.month
 
-    # Create monthly dummies (drop first month to avoid multicollinearity)
+    # Monthly dummies (excluding the first to avoid multicollinearity)
     month_dummies = pd.get_dummies(historical_data["month"], prefix="Month", drop_first=True)
 
-    # Combine features and month dummies
-    X = pd.concat([historical_data[feature_names], month_dummies], axis=1)
-    X = sm.add_constant(X).astype(float)
-
+    # Features and target
+    X = pd.concat([historical_data[feature_names], month_dummies], axis=1).astype(float)
     y = historical_data[outcome]
 
-    X = sm.add_constant(X)
+    # Remove outliers
+    z = np.abs(stats.zscore(y))
+    threshold = 3
+    outliers = np.where(z > threshold)[0]
+    X = X.drop(X.index[outliers])
+    y = y.drop(y.index[outliers])
 
-    model = sm.GLM(y, X, family=sm.families.Gamma()).fit(cov_type='HC2')
+    X_const = sm.add_constant(X)
+
+    # Time series cross-validation
+    tscv = TimeSeriesSplit(n_splits=5, gap = 4)
+    model = RidgeCV(cv=tscv, store_cv_results=False, alphas=np.logspace(-2, 2, 50)).fit(X_const, y)
+
+    # Best model metrics
+    best_alpha = model.alpha_
+    y_pred = model.predict(X_const)
+    mae = mean_absolute_error(y, y_pred)
 
     if show_summary:
-        print(model.summary())
+        print(f"✅ Best Alpha: {best_alpha}")
+        print(f"✅ Mean Absolute Error on Full Data: {mae:.4f}")
 
     return model
 
-
-def train_model_day_ahead(historical_data_path="Datasets/Processed Data/historical_data.csv", show_summary=True, include_lag=False):
+def train_model_day_ahead(historical_data_path="processed_data/historical_data.csv", show_summary=True, include_lag=False):
     """
     Trains an OLS regression model using the specified features and outcome variable.
     - Parameters:
@@ -155,7 +160,7 @@ def train_model_day_ahead(historical_data_path="Datasets/Processed Data/historic
     # Create monthly dummies (drop first month to avoid multicollinearity)
     month_dummies = pd.get_dummies(historical_data["month"], prefix="Month", drop_first=True)
 
-    feature_names=["RESP", "NG Price", "BESS"]
+    feature_names=["RESP", "NG_Price", "BESS"]
 
     # Combine features and month dummies
     X = pd.concat([historical_data[feature_names], month_dummies], axis=1)
@@ -172,14 +177,9 @@ def train_model_day_ahead(historical_data_path="Datasets/Processed Data/historic
 
 ## --------------------------------------------------------------------------- FORECASTING FUNCTIONS --------------------------------------------------------------------------- ##
 
-import pandas as pd
-import itertools
-import statsmodels.api as sm
-import matplotlib.pyplot as plt
-
 def forecast_with_scenarios(model, outcome="Imbalance", feature_names=["RESP", "NG_Price", "BESS", "EUA"],
-                            future_data_path="Datasets/Processed Data/Future dataset with BESS.csv",
-                            historical_data_path="Datasets/Processed Data/historical_data.csv",
+                            future_data_path="processed_data/Future dataset with BESS.csv",
+                            historical_data_path="processed_data/historical_data.csv",
                             show_plot=True):
     """
     Forecasts future scenarios using the trained model and specified features, including monthly dummies.
@@ -225,6 +225,11 @@ def forecast_with_scenarios(model, outcome="Imbalance", feature_names=["RESP", "
             # Predict revenue
             revenue_forecast = model.predict(X_future)
 
+            if outcome == "Intraday":
+                revenue_forecast = np.clip(revenue_forecast, -2000, 20000)
+            elif outcome == "Imbalance":
+                revenue_forecast = np.clip(revenue_forecast, -10000, 40000)
+
             # Store forecast
             future_comb_df = pd.DataFrame({
                 "Date": future_data["Date"],
@@ -248,7 +253,6 @@ def forecast_with_scenarios(model, outcome="Imbalance", feature_names=["RESP", "
         plt.show()
 
     return all_forecasts
-
 
 def forecast_with_scenarios_rolling(model, outcome="Imbalance", feature_names=["RESP", "NG Price", "BESS"],
                                      future_data_path="Datasets/Processed Data/Future dataset with BESS.csv",
