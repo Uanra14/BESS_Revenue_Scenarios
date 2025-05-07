@@ -23,7 +23,7 @@ def plot_scenario(scenario = "a"):
     """
 
     # Plot the features
-    historical_data = pd.read_csv("Datasets/Processed Data/historical_data.csv", parse_dates=["Date"])
+    historical_data = pd.read_csv("forecasts/historical_data.csv", parse_dates=["Date"])
 
     # Standardize Revenue separately (only for plotting)
     revenue_scaler = StandardScaler()
@@ -37,7 +37,7 @@ def plot_scenario(scenario = "a"):
     historical_data[columns_to_standardize] = scaler.fit_transform(historical_data[columns_to_standardize])
 
     # Load the future dataset
-    future_data = pd.read_csv("Datasets/Processed Data/Future dataset with BESS.csv", parse_dates=["Date"])
+    future_data = pd.read_csv("forecasts/Future dataset with BESS.csv", parse_dates=["Date"])
 
     # Rename columns in future_dataset to match historical_data
     if scenario == None:
@@ -107,30 +107,31 @@ def smooth_logistic_growth(dates, start, end, steepness=4):
 
 ## --------------------------------------------------------------------------- TRAINING FUNCTIONS --------------------------------------------------------------------------- ##
 
-def train_model(feature_names=["RESP", "NG_Price", "BESS"], outcome="Imbalance",
+def train_model(feature_names=["RESP", "NG_Price"], outcome="Imbalance",
                             historical_data_path="processed_data/historical_data.csv", show_summary=True):
     historical_data = pd.read_csv(historical_data_path, parse_dates=["Date"])
     historical_data.set_index("Date", inplace=True)
     historical_data["month"] = historical_data.index.month
 
-    # Monthly dummies (excluding the first to avoid multicollinearity)
-    month_dummies = pd.get_dummies(historical_data["month"], prefix="Month", drop_first=True)
+    # # Monthly dummies (excluding the first to avoid multicollinearity)
+    # month_dummies = pd.get_dummies(historical_data["month"], prefix="Month", drop_first=True)
 
     # Features and target
-    X = pd.concat([historical_data[feature_names], month_dummies], axis=1).astype(float)
+    # X = pd.concat([historical_data[feature_names], month_dummies], axis=1).astype(float)
+    X = historical_data[feature_names].astype(float)
     y = historical_data[outcome]
 
     # Remove outliers
     z = np.abs(stats.zscore(y))
     threshold = 3
-    outliers = np.where(z > threshold)[0]
-    X = X.drop(X.index[outliers])
-    y = y.drop(y.index[outliers])
+    outliers_y = np.where(z > threshold)[0]
+    X = X.drop(X.index[outliers_y])
+    y = y.drop(y.index[outliers_y])
 
     X_const = sm.add_constant(X)
 
     # Time series cross-validation
-    tscv = TimeSeriesSplit(n_splits=5, gap = 4)
+    tscv = TimeSeriesSplit(n_splits=5)
     model = RidgeCV(cv=tscv, store_cv_results=False, alphas=np.logspace(-2, 2, 50)).fit(X_const, y)
 
     # Best model metrics
@@ -177,7 +178,7 @@ def train_model_day_ahead(historical_data_path="processed_data/historical_data.c
 
 ## --------------------------------------------------------------------------- FORECASTING FUNCTIONS --------------------------------------------------------------------------- ##
 
-def forecast_with_scenarios(model, outcome="Imbalance", feature_names=["RESP", "NG_Price", "BESS", "EUA"],
+def forecast_with_scenarios(model, outcome="Imbalance",
                             future_data_path="processed_data/Future dataset with BESS.csv",
                             historical_data_path="processed_data/historical_data.csv",
                             show_plot=True):
@@ -190,14 +191,13 @@ def forecast_with_scenarios(model, outcome="Imbalance", feature_names=["RESP", "
     historical_data = pd.read_csv(historical_data_path, parse_dates=["Date"])
     historical_data.set_index("Date", inplace=True)
 
-    # Prepare month dummies (must match training: months 2–12, drop January)
-    month_dummies = pd.get_dummies(future_data["month"], prefix="Month", drop_first=True)
+    # # Prepare month dummies (must match training: months 2–12, drop January)
+    # month_dummies = pd.get_dummies(future_data["month"], prefix="Month", drop_first=True)
 
     # Mapping future scenario columns to standardized features
     scenario_mapping = {
         "RESP": ["Ra", "Rb", "Rc", "Rd", "Re", "Rf"],
         "NG_Price": ["Ga", "Gb", "Gc"],
-        "BESS": ["Ba", "Bb", "Bc", "Bd", "Be", "Bf"],
     }
 
     scenario_combinations = list(itertools.product(
@@ -213,11 +213,11 @@ def forecast_with_scenarios(model, outcome="Imbalance", feature_names=["RESP", "
             temp_df = pd.DataFrame({
                 "RESP": future_data[combination[0]].values,
                 "NG_Price": future_data[combination[1]].values,
-                "BESS": future_data[combination[2]].values,
             })
 
             # Combine with month dummies
-            X_future = pd.concat([temp_df, month_dummies], axis=1)
+            # X_future = pd.concat([temp_df, month_dummies], axis=1)
+            X_future = temp_df.copy()
 
             # Add constant and ensure float type
             X_future = sm.add_constant(X_future).astype(float)
@@ -225,10 +225,11 @@ def forecast_with_scenarios(model, outcome="Imbalance", feature_names=["RESP", "
             # Predict revenue
             revenue_forecast = model.predict(X_future)
 
-            if outcome == "Intraday":
-                revenue_forecast = np.clip(revenue_forecast, -2000, 20000)
-            elif outcome == "Imbalance":
-                revenue_forecast = np.clip(revenue_forecast, -10000, 40000)
+            # clipping values
+            # if outcome == "Intraday":
+            #     revenue_forecast = np.clip(revenue_forecast, -2000, 20000)
+            # elif outcome == "Imbalance":
+            #     revenue_forecast = np.clip(revenue_forecast, -10000, 40000)
 
             # Store forecast
             future_comb_df = pd.DataFrame({
