@@ -107,17 +107,13 @@ def smooth_logistic_growth(dates, start, end, steepness=4):
 
 ## --------------------------------------------------------------------------- TRAINING FUNCTIONS --------------------------------------------------------------------------- ##
 
-def train_model(feature_names=["RESP", "NG_Price"], outcome="Imbalance",
+def train_model(feature_names=["RESP", "NG_Price", "BESS"], outcome="Imbalance",
                             historical_data_path="processed_data/historical_data.csv", show_summary=True):
     historical_data = pd.read_csv(historical_data_path, parse_dates=["Date"])
     historical_data.set_index("Date", inplace=True)
     historical_data["month"] = historical_data.index.month
 
-    # # Monthly dummies (excluding the first to avoid multicollinearity)
-    # month_dummies = pd.get_dummies(historical_data["month"], prefix="Month", drop_first=True)
-
     # Features and target
-    # X = pd.concat([historical_data[feature_names], month_dummies], axis=1).astype(float)
     X = historical_data[feature_names].astype(float)
     y = historical_data[outcome]
 
@@ -132,7 +128,7 @@ def train_model(feature_names=["RESP", "NG_Price"], outcome="Imbalance",
 
     # Time series cross-validation
     tscv = TimeSeriesSplit(n_splits=5)
-    model = RidgeCV(cv=tscv, store_cv_results=False, alphas=np.logspace(-2, 2, 50)).fit(X_const, y)
+    model = RidgeCV(cv=tscv, store_cv_results=False, alphas=np.logspace(-3, 3, 50)).fit(X_const, y)
 
     # Best model metrics
     best_alpha = model.alpha_
@@ -198,6 +194,7 @@ def forecast_with_scenarios(model, outcome="Imbalance",
     scenario_mapping = {
         "RESP": ["Ra", "Rb", "Rc", "Rd", "Re", "Rf"],
         "NG_Price": ["Ga", "Gb", "Gc"],
+        "BESS": ["Ba", "Bb", "Bc", "Bd", "Be", "Bf"]
     }
 
     scenario_combinations = list(itertools.product(
@@ -213,6 +210,7 @@ def forecast_with_scenarios(model, outcome="Imbalance",
             temp_df = pd.DataFrame({
                 "RESP": future_data[combination[0]].values,
                 "NG_Price": future_data[combination[1]].values,
+                "BESS": future_data[combination[2]].values,
             })
 
             # Combine with month dummies
