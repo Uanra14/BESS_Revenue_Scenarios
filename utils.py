@@ -131,7 +131,7 @@ def train_model(feature_names=["RESP", "NG_Price", "BESS"], outcome="Imbalance",
 
     # Time series cross-validation
     tscv = TimeSeriesSplit(n_splits=5, gap = 4)
-    model = RidgeCV(cv=tscv, store_cv_values=False, alphas=np.logspace(-2, 2, 50)).fit(X_const, y)
+    model = RidgeCV(cv=tscv, store_cv_results=False, alphas=np.logspace(-2, 2, 50)).fit(X_const, y)
 
     # Best model metrics
     best_alpha = model.alpha_
