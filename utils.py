@@ -107,7 +107,7 @@ def smooth_logistic_growth(dates, start, end, steepness=4):
 
 ## --------------------------------------------------------------------------- TRAINING FUNCTIONS --------------------------------------------------------------------------- ##
 
-def train_elastic_net_model(feature_names=["RESP", "NG_Price", "BESS"], outcome="Imbalance",
+def train_model(feature_names=["RESP", "NG_Price", "BESS"], outcome="Imbalance",
                             historical_data_path="processed_data/historical_data.csv", show_summary=True):
     historical_data = pd.read_csv(historical_data_path, parse_dates=["Date"])
     historical_data.set_index("Date", inplace=True)
@@ -127,78 +127,22 @@ def train_elastic_net_model(feature_names=["RESP", "NG_Price", "BESS"], outcome=
     X = X.drop(X.index[outliers])
     y = y.drop(y.index[outliers])
 
+    X_const = sm.add_constant(X)
+
     # Time series cross-validation
-    tscv = TimeSeriesSplit(n_splits=5)
-    model = ElasticNetCV(cv=tscv, random_state=0, l1_ratio=np.linspace(0.1, 0.9, 9), alphas=np.logspace(-2, 2, 100)).fit(X, y)
+    tscv = TimeSeriesSplit(n_splits=5, gap = 4)
+    model = RidgeCV(cv=tscv, store_cv_values=False, alphas=np.logspace(-2, 2, 50)).fit(X_const, y)
 
     # Best model metrics
     best_alpha = model.alpha_
-    best_l1_ratio = model.l1_ratio_
-    y_pred = model.predict(X)
+    y_pred = model.predict(X_const)
     mae = mean_absolute_error(y, y_pred)
 
     if show_summary:
         print(f"✅ Best Alpha: {best_alpha}")
-        print(f"✅ Best L1 Ratio: {best_l1_ratio}")
         print(f"✅ Mean Absolute Error on Full Data: {mae:.4f}")
 
     return model
-
-
-
-def train_model(feature_names=["RESP", "NG_Price", "BESS"], outcome="Imbalance", 
-                historical_data_path="processed_data/historical_data.csv", show_summary=True):
-    historical_data = pd.read_csv(historical_data_path, parse_dates=["Date"])
-    historical_data.set_index("Date", inplace=True)
-    historical_data["month"] = historical_data.index.month
-
-    month_dummies = pd.get_dummies(historical_data["month"], prefix="Month", drop_first=True)
-    X = pd.concat([historical_data[feature_names], month_dummies], axis=1).astype(float)
-    y = historical_data[outcome]
-
-    # remove outliers
-    z = np.abs(stats.zscore(y))
-    threshold = 3
-    outliers = np.where(z > threshold)[0]
-    X = X.drop(X.index[outliers])
-    y = y.drop(y.index[outliers])
-
-    alphas = np.logspace(-2, 2, 100)  # Range of alpha values for Ridge regression
-    tscv = TimeSeriesSplit(n_splits=5)
-
-    best_alpha = None
-    best_mae = float("inf")
-    best_model = None
-
-    for alpha in alphas:
-        maes = []
-        for train_index, val_index in tscv.split(X):
-            X_train, X_val = X.iloc[train_index], X.iloc[val_index]
-            y_train, y_val = y.iloc[train_index], y.iloc[val_index]
-
-            X_train_const = sm.add_constant(X_train)
-            X_val_const = sm.add_constant(X_val)
-
-            model = ElasticNetCV(l1_ratio = alphas, random_state=0).fit(X_train_const, y_train)
-            y_pred = model.predict(X_val_const)
-            maes.append(mean_absolute_error(y_val, y_pred))
-
-        avg_mae = np.mean(maes)
-        if avg_mae < best_mae:
-            best_mae = avg_mae
-            best_alpha = alpha
-
-    # Train final model on full data
-    X_const = sm.add_constant(X)
-    final_model = RidgeCV(alphas=[best_alpha]).fit(X_const, y)
-
-    if show_summary:
-        print(f"Best Alpha: {best_alpha}")
-        print(f"Mean Absolute Error (CV): {best_mae}")
-
-    return final_model
-
-
 
 def train_model_day_ahead(historical_data_path="processed_data/historical_data.csv", show_summary=True, include_lag=False):
     """
@@ -280,6 +224,11 @@ def forecast_with_scenarios(model, outcome="Imbalance", feature_names=["RESP", "
 
             # Predict revenue
             revenue_forecast = model.predict(X_future)
+
+            if outcome == "Intraday":
+                revenue_forecast = np.clip(revenue_forecast, -2000, 20000)
+            elif outcome == "Imbalance":
+                revenue_forecast = np.clip(revenue_forecast, -10000, 40000)
 
             # Store forecast
             future_comb_df = pd.DataFrame({
