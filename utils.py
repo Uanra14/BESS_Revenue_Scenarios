@@ -107,7 +107,7 @@ def smooth_logistic_growth(dates, start, end, steepness=4):
 import pandas as pd
 import statsmodels.api as sm
 
-def train_model_gamma(feature_names=["RESP", "NG_Price", "BESS"], outcome="Imbalance", historical_data_path="Datasets/Processed Data/historical_data.csv", show_summary=True):
+def train_model(feature_names=["RESP", "NG_Price", "BESS"], outcome="Imbalance", historical_data_path="processed_data/historical_data.csv", show_summary=True):
     """
     Trains a Gamma regression model using the specified features and month dummies.
     - Parameters:
@@ -131,7 +131,7 @@ def train_model_gamma(feature_names=["RESP", "NG_Price", "BESS"], outcome="Imbal
 
     X = sm.add_constant(X)
 
-    model = sm.GLM(y, X, family=sm.families.Gamma()).fit(cov_type='HC2')
+    model = sm.OLS(y, X).fit(cov_type='HC2')
 
     if show_summary:
         print(model.summary())
@@ -139,7 +139,7 @@ def train_model_gamma(feature_names=["RESP", "NG_Price", "BESS"], outcome="Imbal
     return model
 
 
-def train_model_day_ahead(historical_data_path="Datasets/Processed Data/historical_data.csv", show_summary=True, include_lag=False):
+def train_model_day_ahead(historical_data_path="processed_data/historical_data.csv", show_summary=True, include_lag=False):
     """
     Trains an OLS regression model using the specified features and outcome variable.
     - Parameters:
@@ -155,7 +155,7 @@ def train_model_day_ahead(historical_data_path="Datasets/Processed Data/historic
     # Create monthly dummies (drop first month to avoid multicollinearity)
     month_dummies = pd.get_dummies(historical_data["month"], prefix="Month", drop_first=True)
 
-    feature_names=["RESP", "NG Price", "BESS"]
+    feature_names=["RESP", "NG_Price", "BESS"]
 
     # Combine features and month dummies
     X = pd.concat([historical_data[feature_names], month_dummies], axis=1)
@@ -178,8 +178,8 @@ import statsmodels.api as sm
 import matplotlib.pyplot as plt
 
 def forecast_with_scenarios(model, outcome="Imbalance", feature_names=["RESP", "NG_Price", "BESS", "EUA"],
-                            future_data_path="Datasets/Processed Data/Future dataset with BESS.csv",
-                            historical_data_path="Datasets/Processed Data/historical_data.csv",
+                            future_data_path="processed_data/Future dataset with BESS.csv",
+                            historical_data_path="processed_data/historical_data.csv",
                             show_plot=True):
     """
     Forecasts future scenarios using the trained model and specified features, including monthly dummies.
